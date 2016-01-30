@@ -1,0 +1,95 @@
+---
+title: "Prediction Assignment - Weight Lifting Exercise"
+author: "Alvin Choong"
+date: "30 January 2016"
+output: html_document
+---
+
+##Executive Summary
+
+The data consists of measurements taken by individuals who were asked to perform barbell lifts correctly and incorrectly in 5 different ways, and to measure  themselves regularly. They are then classed into 5 different classes (A, B, C, D and E). More information on the dataset is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The objective of this analysis is to study the training dataset, apply machine learning techniques and derive a final model that can be used to predict the categories of the 20 test cases accurately.  
+
+The following packages are loaded:
+```{r}
+library(caret)
+library(randomForest)
+```
+
+##Data Manipulation
+
+We first import the dataset, and convert all missing values into "NA".  We then attempt to remove all missing values and "NA" values, by converting the data into a boolean where TRUE represents NA or missing values, and FALSE represents useable values.  We keep all columns where colSums(is.na(x))==0, as this means there are no missing values or "NA" in the column.
+
+```{r}
+training<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",header=TRUE,na.strings=c("NA",""))
+testing<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",header=TRUE,na.strings=c("NA",""))
+training_2<-training[,colSums(is.na(training))==0]
+testing_2<-testing[,colSums(is.na(testing))==0]
+```
+
+We then remove the first 7 columns of the dataset, as these do not appear to be variables. 
+
+```{r}
+training_3<-training_2[,-(1:7)]
+testing_3<-testing_2[,-(1:7)]
+```
+
+The data is now ready for partitioning and further modelling.
+
+##Modelling Methodology
+
+We first create a partition of the training data in order to enable cross-validation to be carried out on our model. We do this by splitting the training dataset into another "training" dataset and a "validation dataset", in a 60%, 40% proportion. We set a seed to ensure the results below are reproducible.
+
+```{r}
+set.seed(32323)
+inTrain<-createDataPartition(y=training_3$classe, p=0.6, list=FALSE)
+train_new<-training_3[inTrain,]
+valid_new<-training_3[-inTrain,]
+dim(train_new); dim(valid_new)
+```
+
+There are 53 factor variables and one response variable ("classe").  In order to reduce the number of variables, we try to remove highly correlated variables by using Principle Components Analysis. The 54th column, "classe", is removed from this preprocessing stage. A threshold of 95% is selected for the PCA pre-processing.  
+
+```{r}
+proc<-preProcess(train_new[,-54],method="pca",thresh=0.95)
+```
+
+The PCA result is then applied to the training dataset and the validation dataset created above. A model is then fitted to the PCA-applied training dataset, using the Random Forest method.
+
+```{r}
+train_new_PCA<-predict(proc,train_new[,-54])
+valid_new_PCA<-predict(proc,valid_new[,-54])
+modelFit<-train(train_new$classe~.,data=train_new_PCA,method="rf",importance=TRUE)
+```
+
+Note: An alternative model was also fitted using the Gradient Boosting Machine (GBM method), however this was found to be significantly less accurate with an accuracy of ~83%.  The code is shown below but not run with the markdown.
+
+```{r,eval=FALSE}
+modelFit2<-train(train_new$classe~.,data=train_new_PCA,method="gbm")
+```
+
+##Cross-validation, Accuracy and Out-of-sample error
+
+The fitted model is then evaluated against the "validation" dataset, by running this through the Confusion Matrix function.  A table of actual vs. predicted is set out below, as is the accuracy and out-of-sample error.
+
+```{r}
+confMatrix<-confusionMatrix(valid_new$classe, predict(modelFit, valid_new_PCA))
+Accuracy<-confMatrix$overall[1]
+Accuracy
+Outofsampleerror<-1-Accuracy
+Outofsampleerror
+```
+
+The accuracy is 97.7%, and out-of-sample error is estimated to be 2.3%.
+
+##Final Predictions on Test Dataset
+
+With the cross-validated model in place, we  now predict the test cases based on the fitted final model. We pre-process the test data beforehand, using the Principle Component Analysis run above.
+
+```{r}
+test_new_PCA<-predict(proc,testing_3[,-54])
+test_result<-predict(modelFit,test_new_PCA)
+test_result
+```
+
